@@ -4,12 +4,15 @@ using UnityEngine;
 
 public class Charge : MonoBehaviour
 {
-    private PlayerController playerController;
+
+    private PlayerController playerController1;
+    private PlayerController playerController2;
 
     // Start is called before the first frame update
     void Start()
     {
-        playerController = GetComponent<PlayerController>();
+        playerController1 = GetComponent<PlayerController>();
+        playerController2 = GetComponent<PlayerController>();
     }
 
     // Update is called once per frame
@@ -20,9 +23,9 @@ public class Charge : MonoBehaviour
 
     public void AddCharge(float amount)
     {
-        if (playerController != null)
+        if (playerController1 != null)
         {
-            playerController.ChargeAmount += amount;
+            playerController1.ChargeAmount += amount;
         }
         else
         {

@@ -5,21 +5,25 @@ using UnityEngine;
 public class PlayerController : MonoBehaviour
 {
     //Hard components
-    [SerializeField] private UIManager uiManagerScript;
+    //[SerializeField] private UIManager uiManagerScript;
     private Rigidbody2D rb;
     private Charge chargeScript;
-
+    
     //Player components
     [SerializeField] private float chargeAmount = 0f;
     [SerializeField] private bool isCharging = false;
+    [SerializeField] private KeyCode attackKey = KeyCode.X; // 키설정
+    [SerializeField] private KeyCode chargeKey = KeyCode.C; // 키설정
+    [SerializeField] private int facing = 1;
     private float maxY;
     private int dashPower;
     private float attackChargeAmount;
     private float attackDistance;
-    private enum PlayerState
+
+    public enum PlayerState
     {
         Idle,
-        Defending,
+        Guard,
         Punch,
         Dash,
         Damaged
@@ -28,10 +32,16 @@ public class PlayerController : MonoBehaviour
     public float ChargeAmount // chargeAmount property
     {
         get { return chargeAmount; }
-        set { chargeAmount = Mathf.Clamp(value, 0, 100); } 
+        set { /*if (value < 0 || value > 100) Debug.LogWarning($"{value}가 범위를 넘었습니다.");*/
+            chargeAmount = Mathf.Clamp(value, 0, 100); } 
     }
 
-    PlayerState currentState = PlayerState.Idle;
+    [SerializeField] PlayerState currentState = PlayerState.Guard;
+    public PlayerState CurrentState // chargeAmount property
+    {
+        get { return currentState; }
+    }
+
     void Start()
     {
         chargeScript = GetComponent<Charge>();
@@ -52,11 +62,20 @@ public class PlayerController : MonoBehaviour
         if (currentState != PlayerState.Dash && currentState != PlayerState.Damaged) // 공격/쳐맞지 않았으면 속도 감소
         {
             Vector3 velocity = rb.velocity;
-            velocity.x *= 0.8f;
+            velocity.x *= 0.9f;
             rb.velocity = velocity;
         }
 
-        uiManagerScript.UpdateChargeText(ChargeAmount); // 충전량 보여주기
+        if( Mathf.Abs(rb.velocity.x) < 1.0E-05f)
+        {
+            rb.velocity = new Vector2(0, rb.velocity.y);
+        }
+
+        if(currentState == PlayerState.Idle && rb.velocity.x == 0 && !isCharging)
+        {
+            currentState = PlayerState.Guard;
+        }
+
     }
     void FixedUpdate()
     {
@@ -68,21 +87,72 @@ public class PlayerController : MonoBehaviour
         Manage_Y(); // y값 붕 뜨지 않게 고정
     }
 
+    void OnCollisionStay2D(Collision2D collision)
+    {
+        if (currentState == PlayerState.Dash && collision.gameObject.CompareTag("Player"))
+        {
+            PlayerController otherPlayer = collision.gameObject.GetComponent<PlayerController>();
+            Rigidbody2D otherRb = collision.gameObject.GetComponent<Rigidbody2D>();
+            currentState = PlayerState.Idle;
+
+            if (otherPlayer != null && otherPlayer.currentState == PlayerState.Idle)
+            {
+                // 상대 플레이어 밀기
+                if (otherRb != null)
+                {
+                    otherRb.velocity = new Vector2(50 * Mathf.Sqrt(dashPower) * facing, 0); // 밀려나는 속도 설정
+                    otherPlayer.ChargeAmount -= 25;
+                }
+                Debug.Log("power = " + 100 * Mathf.Sqrt(dashPower));
+                // 공격 종료 후 상태 복귀
+            }
+
+            else if(otherPlayer != null && otherPlayer.currentState == PlayerState.Dash)
+            {
+                // 약한쪽이 밀리기.
+                if (otherPlayer.dashPower > dashPower)
+                {
+                    rb.velocity = new Vector2(50 * Mathf.Sqrt(dashPower) * facing * -1, 0);
+                }
+                
+                else if (otherPlayer.dashPower == dashPower)
+                {
+                    otherRb.velocity = new Vector2(25 * Mathf.Sqrt(dashPower) * facing, 0);
+                    rb.velocity = new Vector2(25 * Mathf.Sqrt(dashPower) * facing * -1, 0);
+                }
+            }
+
+            else if (otherPlayer != null && otherPlayer.currentState == PlayerState.Guard)
+            {
+                // 방어하고 있으면 내가 밀리기.
+                rb.velocity = new Vector2(25 * Mathf.Sqrt(dashPower) * facing * -1, 0);
+                currentState = PlayerState.Idle;
+            }
+        }
+
+        if (currentState == PlayerState.Guard && collision.gameObject.CompareTag("Player"))
+        {
+
+        }
+    }
+
     void ChargeChecking()
     {
-        if (Input.GetKeyDown(KeyCode.C))
+        if (Input.GetKeyDown(chargeKey))
         {
             isCharging = true;
+            currentState = PlayerState.Idle;
         }
-        else if (Input.GetKeyUp(KeyCode.C))
+        else if (Input.GetKeyUp(chargeKey))
         {
             isCharging = false;
+            currentState = PlayerState.Guard;
         }
     }
 
     void Attack()
     {
-        if (Input.GetKeyDown(KeyCode.X))
+        if (Input.GetKeyDown(attackKey))
         {
             if (chargeAmount >= 25f) {
                 currentState = PlayerState.Dash;
@@ -103,9 +173,8 @@ public class PlayerController : MonoBehaviour
                 {
                     dashPower = 1;
                 }
-                attackDistance = Mathf.Log(dashPower * attackChargeAmount) * dashPower * dashPower; 
+                attackDistance = Mathf.Log(attackChargeAmount) * dashPower * dashPower; 
                 ChargeAmount -= 25;
-                Debug.Log("Dash");
             }
             else
             {
@@ -115,24 +184,11 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    void Manage_Y() // Managing Y axis
-    {
-        if(transform.position.y <= maxY)
-        {
-            maxY = transform.position.y;
-        }
-
-        if(transform.position.y > maxY)
-        {
-            transform.position = new Vector3(transform.position.x, maxY, transform.position.z);
-        }
-    }
-
     void DashWithPhysics()
     {
-        float moveStep = dashPower * 30 * Time.fixedDeltaTime; // FixedUpdate 기준 이동
+        float moveStep = Mathf.Sqrt(dashPower) * 30 * Time.fixedDeltaTime; // FixedUpdate 기준 이동
         attackDistance -= moveStep;
-        Debug.Log(attackDistance);
+        // Debug.Log(attackDistance);
 
         if (attackDistance <= 0.0f)
         {
@@ -141,9 +197,21 @@ public class PlayerController : MonoBehaviour
         }
 
         Vector3 velocity = rb.velocity;
-        velocity.x = moveStep / Time.fixedDeltaTime;
+        velocity.x = moveStep / Time.fixedDeltaTime * facing;
         rb.velocity = velocity;
-        
+    }
+
+    void Manage_Y() // Managing Y axis
+    {
+        if (transform.position.y <= maxY)
+        {
+            maxY = transform.position.y;
+        }
+
+        if (transform.position.y > maxY)
+        {
+            transform.position = new Vector3(transform.position.x, maxY, transform.position.z);
+        }
     }
 }
 
