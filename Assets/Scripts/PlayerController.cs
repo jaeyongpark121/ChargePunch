@@ -12,11 +12,17 @@ public class PlayerController : MonoBehaviour
     //Player components
     [SerializeField] private float chargeAmount = 0f;
     [SerializeField] private bool isCharging = false;
-    [SerializeField] private KeyCode attackKey = KeyCode.X; // Å°¼³Á¤
-    [SerializeField] private KeyCode chargeKey = KeyCode.C; // Å°¼³Á¤
-    [SerializeField] private int facing = 1;
+    [SerializeField] private KeyCode attackKey = KeyCode.X; // Å°ï¿½ï¿½ï¿½ï¿½
+    [SerializeField] private KeyCode chargeKey = KeyCode.C; // Å°ï¿½ï¿½ï¿½ï¿½
+
+    [SerializeField] private GameObject chargeEffectPrefab;
+    [SerializeField] private GameObject dashEffectPrefab;
+    private ParticleSystem chargeParticleSystem;
+    private ParticleSystem dashParticleSystem;
+
+    public int facing = 1;
     private float maxY;
-    private int dashPower;
+    public int dashPower;
     private float attackChargeAmount;
     private float attackDistance;
 
@@ -32,20 +38,22 @@ public class PlayerController : MonoBehaviour
     public float ChargeAmount // chargeAmount property
     {
         get { return chargeAmount; }
-        set { /*if (value < 0 || value > 100) Debug.LogWarning($"{value}°¡ ¹üÀ§¸¦ ³Ñ¾ú½À´Ï´Ù.");*/
+        set { /*if (value < 0 || value > 100) Debug.LogWarning($"{value}ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ñ¾ï¿½ï¿½ï¿½ï¿½Ï´ï¿½.");*/
             chargeAmount = Mathf.Clamp(value, 0, 100); } 
     }
 
-    [SerializeField] PlayerState currentState = PlayerState.Guard;
-    public PlayerState CurrentState // chargeAmount property
-    {
-        get { return currentState; }
-    }
+    public PlayerState currentState = PlayerState.Guard;
 
     void Start()
     {
         chargeScript = GetComponent<Charge>();
         rb = GetComponent<Rigidbody2D>();
+
+        chargeParticleSystem = Instantiate(chargeEffectPrefab, transform.position, Quaternion.Euler(-90, 0, 0) , this.transform).GetComponent<ParticleSystem>();
+        chargeParticleSystem.Stop();
+
+        dashParticleSystem = Instantiate(dashEffectPrefab, transform.position, Quaternion.Euler(0, -90 * facing, 0), this.transform).GetComponent<ParticleSystem>();
+        dashParticleSystem.Stop();
     }
 
     // Update is called once per frame
@@ -54,91 +62,97 @@ public class PlayerController : MonoBehaviour
         ChargeChecking();
         Attack();
 
-        if (currentState == PlayerState.Dash) // °ø°Ý »óÅÂ½Ã µ¹Áø
+        if (currentState == PlayerState.Dash) // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Â½ï¿½ ï¿½ï¿½ï¿½ï¿½
         {
             DashWithPhysics();
+            isCharging = false;
         }
 
-        if (currentState != PlayerState.Dash && currentState != PlayerState.Damaged) // °ø°Ý/ÃÄ¸ÂÁö ¾Ê¾ÒÀ¸¸é ¼Óµµ °¨¼Ò
+        if (currentState != PlayerState.Dash && currentState != PlayerState.Damaged) // ï¿½ï¿½ï¿½ï¿½/ï¿½Ä¸ï¿½ï¿½ï¿½ ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Óµï¿½ ï¿½ï¿½ï¿½ï¿½
         {
-            Vector3 velocity = rb.velocity;
+            Vector3 velocity = rb.linearVelocity;
             velocity.x *= 0.9f;
-            rb.velocity = velocity;
+            rb.linearVelocity = velocity;
         }
 
-        if( Mathf.Abs(rb.velocity.x) < 1.0E-05f)
+        if( Mathf.Abs(rb.linearVelocity.x) < 1.0E-05f)
         {
-            rb.velocity = new Vector2(0, rb.velocity.y);
+            rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
         }
 
-        if(currentState == PlayerState.Idle && rb.velocity.x == 0 && !isCharging)
+        if(currentState == PlayerState.Idle && rb.linearVelocity.x == 0 && !isCharging)
         {
             currentState = PlayerState.Guard;
         }
 
+        if (currentState == PlayerState.Guard) { rb.linearVelocity = new Vector2(0, rb.linearVelocity.y); }
+
+        Manage_Particle();
     }
     void FixedUpdate()
     {
-        if (isCharging /*&& chargeScript != null*/) // ÃæÀü
+        if (isCharging /*&& chargeScript != null*/) // ï¿½ï¿½ï¿½ï¿½
         {
-            chargeScript.AddCharge(1f);
+            chargeScript.AddCharge(0.5f);
         }
 
-        Manage_Y(); // y°ª ºØ ¶ßÁö ¾Ê°Ô °íÁ¤
+        Manage_Y(); // yï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ê°ï¿½ ï¿½ï¿½ï¿½ï¿½
     }
 
+    /* ï¿½æµ¹ ï¿½ï¿½ï¿½ï¿½
     void OnCollisionStay2D(Collision2D collision)
     {
         if (currentState == PlayerState.Dash && collision.gameObject.CompareTag("Player"))
         {
             PlayerController otherPlayer = collision.gameObject.GetComponent<PlayerController>();
             Rigidbody2D otherRb = collision.gameObject.GetComponent<Rigidbody2D>();
-            currentState = PlayerState.Idle;
 
-            if (otherPlayer != null && otherPlayer.currentState == PlayerState.Idle)
+            if (otherPlayer.currentState == PlayerState.Idle)
             {
-                // »ó´ë ÇÃ·¹ÀÌ¾î ¹Ð±â
-                if (otherRb != null)
-                {
-                    otherRb.velocity = new Vector2(50 * Mathf.Sqrt(dashPower) * facing, 0); // ¹Ð·Á³ª´Â ¼Óµµ ¼³Á¤
-                    otherPlayer.ChargeAmount -= 25;
-                }
-                Debug.Log("power = " + 100 * Mathf.Sqrt(dashPower));
-                // °ø°Ý Á¾·á ÈÄ »óÅÂ º¹±Í
+                // ï¿½ï¿½ï¿½ ï¿½Ã·ï¿½ï¿½Ì¾ï¿½ ï¿½Ð±ï¿½
+                otherRb.velocity = new Vector2(50 * Mathf.Sqrt(dashPower) * facing, 0); // ï¿½Ð·ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Óµï¿½ ï¿½ï¿½ï¿½ï¿½
+                otherPlayer.ChargeAmount -= 25;
+                Debug.Log(gameObject.name + " attacked");
+                currentState = PlayerState.Idle;
             }
 
-            else if(otherPlayer != null && otherPlayer.currentState == PlayerState.Dash)
+            else if(otherPlayer.currentState == PlayerState.Dash)
             {
-                // ¾àÇÑÂÊÀÌ ¹Ð¸®±â.
+                // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ð¸ï¿½ï¿½ï¿½.
                 if (otherPlayer.dashPower > dashPower)
                 {
                     rb.velocity = new Vector2(50 * Mathf.Sqrt(dashPower) * facing * -1, 0);
+                    Debug.Log(gameObject.name + " attacked");
+                    currentState = PlayerState.Idle;
                 }
                 
                 else if (otherPlayer.dashPower == dashPower)
                 {
-                    otherRb.velocity = new Vector2(25 * Mathf.Sqrt(dashPower) * facing, 0);
                     rb.velocity = new Vector2(25 * Mathf.Sqrt(dashPower) * facing * -1, 0);
+                    //Debug.Log(gameObject.name);
+                    Debug.Log(currentState);
+                    Debug.Log(otherPlayer.currentState);
+                    Debug.Log(gameObject.name + " power was same");
+                    currentState = PlayerState.Idle;
                 }
             }
 
-            else if (otherPlayer != null && otherPlayer.currentState == PlayerState.Guard)
+            else if (otherPlayer.currentState == PlayerState.Guard)
             {
-                // ¹æ¾îÇÏ°í ÀÖÀ¸¸é ³»°¡ ¹Ð¸®±â.
+                // ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ð¸ï¿½ï¿½ï¿½.
                 rb.velocity = new Vector2(25 * Mathf.Sqrt(dashPower) * facing * -1, 0);
+                Debug.Log(gameObject.name + " missed");
                 currentState = PlayerState.Idle;
             }
-        }
-
-        if (currentState == PlayerState.Guard && collision.gameObject.CompareTag("Player"))
-        {
 
         }
+
     }
+    */
 
     void ChargeChecking()
     {
-        if (Input.GetKeyDown(chargeKey))
+        if (Input.GetKeyDown(chargeKey) && currentState != PlayerState.Dash)
         {
             isCharging = true;
             currentState = PlayerState.Idle;
@@ -146,7 +160,6 @@ public class PlayerController : MonoBehaviour
         else if (Input.GetKeyUp(chargeKey))
         {
             isCharging = false;
-            currentState = PlayerState.Guard;
         }
     }
 
@@ -173,32 +186,63 @@ public class PlayerController : MonoBehaviour
                 {
                     dashPower = 1;
                 }
-                attackDistance = Mathf.Log(attackChargeAmount) * dashPower * dashPower; 
+                attackDistance = Mathf.Log(attackChargeAmount) * dashPower; 
                 ChargeAmount -= 25;
             }
             else
             {
                 Debug.Log("Punch");
             }
-
+            // Debug.Log(currentState + "\n" + dashPower + "\n" + attackDistance + "\n");
         }
     }
 
+    /*
     void DashWithPhysics()
     {
-        float moveStep = Mathf.Sqrt(dashPower) * 30 * Time.fixedDeltaTime; // FixedUpdate ±âÁØ ÀÌµ¿
+        float moveStep = (attackDistance / (4 + dashPower) <= 0.1) ? 0.1f : attackDistance / (4 + dashPower); // FixedUpdate ï¿½ï¿½ï¿½ï¿½ ï¿½Ìµï¿½
+        Debug.Log(moveStep+"\n"+attackDistance);
         attackDistance -= moveStep;
         // Debug.Log(attackDistance);
 
-        if (attackDistance <= 0.0f)
+        if (Mathf.Abs(attackDistance) <= 0.05f)
         {
-            currentState = PlayerState.Idle; // ÀÌµ¿ Á¾·á
-            moveStep += attackDistance; // ÃÊ°ú ÀÌµ¿ ¹æÁö
+            currentState = PlayerState.Idle; // ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½
+            attackDistance = 0; // ï¿½Ê°ï¿½ ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½
         }
-
+        
         Vector3 velocity = rb.velocity;
         velocity.x = moveStep / Time.fixedDeltaTime * facing;
         rb.velocity = velocity;
+    }
+    */
+    void DashWithPhysics()
+    {
+        float initialSpeedFactor = 0.3f; // ï¿½Ê±ï¿½ ï¿½Óµï¿½ ï¿½ï¿½ï¿½ï¿½ (1ï¿½Ì¸ï¿½ ï¿½Ö´ï¿½Óµï¿½)
+        float decelerationRate = 0.8f;  // ï¿½ï¿½ï¿½Ó·ï¿½ (1ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
+        float minSpeed = 0.05f;         // ï¿½Ö¼ï¿½ ï¿½Ìµï¿½ ï¿½Å¸ï¿½ ï¿½ï¿½ï¿½ï¿½
+
+        // ï¿½Ê±ï¿½ ï¿½Óµï¿½ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê°ï¿½ ï¿½ï¿½ï¿½ï¿½)
+        float moveStep = attackDistance * initialSpeedFactor;
+
+        // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+        moveStep *= decelerationRate;
+        moveStep = Mathf.Max(moveStep, minSpeed); // ï¿½Ö¼ï¿½ ï¿½Ìµï¿½ ï¿½Å¸ï¿½ ï¿½ï¿½ï¿½ï¿½
+
+        // ï¿½Ìµï¿½ ï¿½Å¸ï¿½ ï¿½ï¿½ï¿½ï¿½
+        attackDistance -= moveStep;
+
+        // ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+        if (Mathf.Abs(attackDistance) <= minSpeed)
+        {
+            currentState = PlayerState.Idle; // ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½
+            attackDistance = 0; // ï¿½Ê°ï¿½ ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½
+        }
+
+        // Rigidbody ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½
+        Vector3 velocity = rb.linearVelocity;
+        velocity.x = moveStep / Time.fixedDeltaTime * facing; // ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+        rb.linearVelocity = velocity;
     }
 
     void Manage_Y() // Managing Y axis
@@ -211,6 +255,40 @@ public class PlayerController : MonoBehaviour
         if (transform.position.y > maxY)
         {
             transform.position = new Vector3(transform.position.x, maxY, transform.position.z);
+        }
+    }
+
+    void Manage_Particle()
+    {
+        // ChargeParticle
+        if (isCharging)
+        {
+            if (!chargeParticleSystem.isEmitting)
+            {
+                chargeParticleSystem.Play(); // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½Æ¼Å¬ ï¿½ï¿½ï¿½
+            }
+        }
+        else
+        {
+            if (chargeParticleSystem.isEmitting)
+            {
+                chargeParticleSystem.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+            }
+        }
+
+        if (currentState == PlayerState.Dash)
+        {
+            if (!dashParticleSystem.isEmitting)
+            {
+                dashParticleSystem.Play(); 
+            }
+        }
+        else
+        {
+            if (dashParticleSystem.isEmitting)
+            {
+                dashParticleSystem.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+            }
         }
     }
 }
